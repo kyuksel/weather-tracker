@@ -157,7 +157,7 @@ a multi-tool chain.
 
 ## PR sequence
 
-- **PR 1: Project scaffolding and healthcheck** — repo skeleton, uv,
+- **PR 1: Project scaffolding and healthcheck** ([#1](https://github.com/kyuksel/weather-tracker/pull/1)) — repo skeleton, uv,
   ruff, FastAPI app with `/healthz`, Dockerfile, docker-compose, README
   skeleton, CLAUDE.md.
 - **PR 2: Database layer and migrations** — SQLAlchemy models, Alembic
