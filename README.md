@@ -228,7 +228,7 @@ a multi-tool chain.
   skeleton, CLAUDE.md.
 - **PR 2: Database layer and migrations** ([#2](https://github.com/kyuksel/weather-tracker/pull/2)) — SQLAlchemy models, Alembic
   setup, initial migration, schema round-trip test.
-- **PR 3: weather.gov client** — httpx-based client with tenacity
+- **PR 3: weather.gov client** ([#3](https://github.com/kyuksel/weather-tracker/pull/3)) — httpx-based client with tenacity
   retries, gridpoint cache, configurable forecast window, mocked
   tests.
 - **PR 4: Poller and scheduler** — APScheduler integration in FastAPI
