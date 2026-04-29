@@ -242,6 +242,9 @@ a multi-tool chain.
 
 ## Future work
 
+- Refactor `app/db.py` to lazy engine and session construction so that importing
+  application modules does not require all environment variables to be set.
+
 - POST endpoint to register new locations to track at runtime.
 - API authentication (JWT, API key, or fronting gateway).
 - Frontend UI for visualizing forecast variation over time.
