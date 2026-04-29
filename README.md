@@ -107,6 +107,17 @@ pulling a new image with schema changes. `docker-compose.yml` overrides
 `DATABASE_URL` to the volume-backed path `sqlite:////data/weather.db`
 regardless of what `.env` contains.
 
+**The poller starts immediately.** On container startup the app polls
+weather.gov for the configured location within seconds; you do not need to
+wait one full interval for the first data. To follow along in real time:
+
+```bash
+docker compose logs -f weather-tracker | grep poll_complete
+```
+
+You should see a `poll_complete` log line with `observations_written` matching
+`FORECAST_HOURS_WINDOW` (default 72) within ~30 seconds of `docker compose up`.
+
 `docker compose down` stops the container. The `weather-data` named volume
 persists the SQLite database across restarts. Running `docker compose up`
 again (without `--build`) reuses the existing image and volume.
@@ -232,7 +243,7 @@ a multi-tool chain.
   retries, gridpoint cache, configurable forecast window, mocked
   tests.
 - **PR 4: Poller and scheduler** — APScheduler integration in FastAPI
-  lifespan, poll job that writes observations, error handling, tests.
+  lifespan, poll job that writes observations, error handling, tests. *(URL added after merge)*
 - **PR 5: Query endpoint** — `GET /forecasts/extremes` with input
   validation, MIN/MAX aggregation, 404 vs count-zero behavior, tests.
 - **PR 6: Documentation polish** — fill all README placeholders,
