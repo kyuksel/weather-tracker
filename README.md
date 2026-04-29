@@ -103,11 +103,26 @@ curl http://localhost:8000/healthz
 **Migrations run automatically on startup.** When the container starts, the
 lifespan handler calls `alembic upgrade head` before the server accepts
 traffic. No manual `alembic upgrade` step is required on first boot or after
-pulling a new image with schema changes.
+pulling a new image with schema changes. `docker-compose.yml` overrides
+`DATABASE_URL` to the volume-backed path `sqlite:////data/weather.db`
+regardless of what `.env` contains.
 
 `docker compose down` stops the container. The `weather-data` named volume
 persists the SQLite database across restarts. Running `docker compose up`
 again (without `--build`) reuses the existing image and volume.
+
+### Running Alembic locally (outside Docker)
+
+The default database path (`/data/weather.db`) only exists inside the
+container. To run migrations locally — for example to inspect the schema or
+generate new revisions — set `DATABASE_URL` to a writable local path first:
+
+```bash
+# .env.example already sets DATABASE_URL=sqlite:///./weather.db; if you
+# copied it to .env that value is picked up automatically.
+uv run alembic upgrade head   # creates ./weather.db
+uv run alembic downgrade base # drops all tables
+```
 
 ---
 
