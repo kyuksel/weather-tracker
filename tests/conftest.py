@@ -1,5 +1,6 @@
 """Shared pytest fixtures for the weather-tracker test suite."""
 
+import os
 from collections.abc import Generator
 from unittest.mock import patch
 
@@ -7,8 +8,15 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import Settings
-from app.db import Base
+# Set required env vars before importing app modules that call get_settings() at
+# module level (app.db creates the engine on import). The mock_settings fixture
+# overrides these at test time, but the import-time call needs valid values.
+os.environ.setdefault("TRACKED_LATITUDE", "39.7456")
+os.environ.setdefault("TRACKED_LONGITUDE", "-97.0892")
+os.environ.setdefault("WEATHER_GOV_USER_AGENT", "weather-tracker/0.1")
+
+from app.config import Settings  # noqa: E402
+from app.db import Base  # noqa: E402
 
 
 def _make_test_settings() -> Settings:
