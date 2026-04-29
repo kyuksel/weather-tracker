@@ -242,8 +242,8 @@ a multi-tool chain.
 - **PR 3: weather.gov client** ([#3](https://github.com/kyuksel/weather-tracker/pull/3)) — httpx-based client with tenacity
   retries, gridpoint cache, configurable forecast window, mocked
   tests.
-- **PR 4: Poller and scheduler** — APScheduler integration in FastAPI
-  lifespan, poll job that writes observations, error handling, tests. *(URL added after merge)*
+- **PR 4: Poller and scheduler** ([#4](https://github.com/kyuksel/weather-tracker/pull/4)) — APScheduler integration in FastAPI
+  lifespan, poll job that writes observations, error handling, tests.
 - **PR 5: Query endpoint** — `GET /forecasts/extremes` with input
   validation, MIN/MAX aggregation, 404 vs count-zero behavior, tests.
 - **PR 6: Documentation polish** — fill all README placeholders,
