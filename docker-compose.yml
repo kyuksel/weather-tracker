@@ -1,0 +1,12 @@
+services:
+  weather-tracker:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - weather-data:/data
+    env_file:
+      - .env
+
+volumes:
+  weather-data:
