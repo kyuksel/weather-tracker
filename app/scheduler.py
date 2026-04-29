@@ -1,6 +1,6 @@
 """APScheduler integration: builds the AsyncIOScheduler for the FastAPI lifespan."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -52,6 +52,6 @@ def build_scheduler(
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        next_run_time=datetime.utcnow(),
+        next_run_time=datetime.now(UTC),
     )
     return scheduler
