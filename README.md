@@ -211,8 +211,8 @@ a multi-tool chain.
 - **PR 1: Project scaffolding and healthcheck** ([#1](https://github.com/kyuksel/weather-tracker/pull/1)) — repo skeleton, uv,
   ruff, FastAPI app with `/healthz`, Dockerfile, docker-compose, README
   skeleton, CLAUDE.md.
-- **PR 2: Database layer and migrations** — SQLAlchemy models, Alembic
-  setup, initial migration, schema round-trip test. *(URL added after PR is opened)*
+- **PR 2: Database layer and migrations** ([#2](https://github.com/kyuksel/weather-tracker/pull/2)) — SQLAlchemy models, Alembic
+  setup, initial migration, schema round-trip test.
 - **PR 3: weather.gov client** — httpx-based client with tenacity
   retries, gridpoint cache, configurable forecast window, mocked
   tests.
