@@ -1,0 +1,29 @@
+# Version control
+.git/
+.gitignore
+
+# Tests and docs (not needed in the image)
+tests/
+docs/
+
+# Markdown (keep README.md for context, exclude others)
+CLAUDE.md
+*.md
+!README.md
+
+# Local environment and data
+.env
+/data/
+*.db
+
+# Python artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
