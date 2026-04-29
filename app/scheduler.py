@@ -1,6 +1,5 @@
 """APScheduler integration: builds the AsyncIOScheduler for the FastAPI lifespan."""
 
-import asyncio
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -22,6 +21,11 @@ def build_scheduler(
     The scheduler is returned but NOT started; the caller starts it inside
     the FastAPI lifespan to ensure it runs on the correct event loop.
 
+    _poll_job is a plain sync function. AsyncIOScheduler's AsyncIOExecutor
+    dispatches sync callables via loop.run_in_executor(None, ...), so
+    poll_once (and its HTTP call) runs in a thread pool and never blocks the
+    event loop — identical in effect to wrapping in asyncio.to_thread.
+
     Args:
         settings: Application configuration.
         session_factory: SQLAlchemy sessionmaker for DB access.
@@ -32,9 +36,8 @@ def build_scheduler(
     """
     scheduler = AsyncIOScheduler()
 
-    async def _poll_job() -> None:
-        await asyncio.to_thread(
-            poll_once,
+    def _poll_job() -> None:
+        poll_once(
             session_factory,
             weather_client,
             settings.tracked_latitude,
