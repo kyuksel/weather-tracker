@@ -28,7 +28,47 @@ hour. Designed as a take-home coding exercise; scope is intentionally narrow.
 
 ## Data model
 
-<!-- placeholder, filled in PR 2 -->
+Two tables are defined in `app/models.py`.
+
+**`location`** — a geographic point identified by latitude and longitude.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | auto-increment |
+| `latitude` | REAL | not null |
+| `longitude` | REAL | not null |
+
+A `UNIQUE (latitude, longitude)` constraint (`uq_location_lat_lon`) prevents
+duplicate registrations of the same point.
+
+**`forecast_observation`** — a single hourly forecast entry captured during
+one polling tick.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | auto-increment |
+| `location_id` | INTEGER FK | → `location.id`, not null, indexed |
+| `retrieved_at` | TIMESTAMP | when the poll ran, naive UTC |
+| `forecast_for` | TIMESTAMP | the hour this forecast targets, naive UTC |
+| `temperature` | REAL | not null |
+| `temperature_unit` | ENUM (`C`/`F`) | stored as `TemperatureUnit` enum |
+
+A composite index `ix_observation_location_forecast_for` covers
+`(location_id, forecast_for)`, which is the access pattern used by the query
+endpoint.
+
+**Critical design point — multiple observations per target hour are intentional.**
+Each polling tick writes one new row per forecast hour, even when a row for the
+same `(location_id, forecast_for)` already exists from an earlier tick. There
+is no unique constraint or upsert on that pair. The system tracks how forecasts
+evolve over time; multiple rows are the data, not a bug.
+
+Concrete example: at 14:00 UTC the poller inserts a row predicting 12.5 °C for
+tomorrow 09:00 UTC. At 15:00 UTC weather.gov has revised its forecast to
+13.1 °C; the poller inserts a second row for the same `forecast_for`
+timestamp. After 24 hours of hourly polling there will be roughly 24 rows for
+that single target hour. The `GET /forecasts/extremes` endpoint aggregates
+across them with `MIN(temperature)` and `MAX(temperature)`.
 
 ---
 
@@ -59,6 +99,11 @@ docker compose up --build
 curl http://localhost:8000/healthz
 # Expected: {"status":"ok"}
 ```
+
+**Migrations run automatically on startup.** When the container starts, the
+lifespan handler calls `alembic upgrade head` before the server accepts
+traffic. No manual `alembic upgrade` step is required on first boot or after
+pulling a new image with schema changes.
 
 `docker compose down` stops the container. The `weather-data` named volume
 persists the SQLite database across restarts. Running `docker compose up`
@@ -92,10 +137,16 @@ See `.env.example` for a template.
 integration, automatic OpenAPI docs, and async support. The lifespan handler
 makes scheduler wiring clean.
 
-**SQLAlchemy 2.x + Alembic** — SQLAlchemy's 2.x API (`select(...)`,
-`session.scalars(...)`) gives clean, type-safe database access without the
-verbosity of raw SQL. Alembic is the standard migration tool for SQLAlchemy
-projects, making schema evolution repeatable and reversible.
+**SQLAlchemy 2.x** — The 2.x API (`select(...)`, `session.scalars(...)`,
+`Mapped[...]` typed columns) gives clean, type-safe database access. It avoids
+the legacy `Query` API and pairs naturally with modern Python type hints. The
+sync engine is used here; the abstraction would migrate cleanly to async
+SQLAlchemy in a future revision.
+
+**Alembic** — The de facto migration tool for SQLAlchemy projects. Supports
+autogeneration of migration scripts from model metadata, integrates with the
+application config to avoid duplicating the database URL, and provides
+repeatable, reversible schema evolution via `upgrade`/`downgrade` commands.
 
 **SQLite** — Sufficient for a single-location polling app. Requires no external
 service, and the SQLAlchemy abstraction means a migration to Postgres is
@@ -161,7 +212,7 @@ a multi-tool chain.
   ruff, FastAPI app with `/healthz`, Dockerfile, docker-compose, README
   skeleton, CLAUDE.md.
 - **PR 2: Database layer and migrations** — SQLAlchemy models, Alembic
-  setup, initial migration, schema round-trip test.
+  setup, initial migration, schema round-trip test. *(URL added after PR is opened)*
 - **PR 3: weather.gov client** — httpx-based client with tenacity
   retries, gridpoint cache, configurable forecast window, mocked
   tests.
