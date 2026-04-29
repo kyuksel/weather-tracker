@@ -1,39 +1,21 @@
 """Tests for the APScheduler integration."""
 
 import asyncio
-from collections import deque
-from datetime import UTC, datetime, timedelta
-from typing import Any
+import threading
+from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.config import Settings
 from app.db import Base
-from app.models import ForecastObservation
+from app.poller import PollResult
 from app.scheduler import build_scheduler
-from app.weather_client import WeatherGovClient
 
 _LAT = 39.7456
 _LON = -97.0892
-_FORECAST_HOURLY_URL = "https://api.weather.gov/gridpoints/TOP/31,80/forecast/hourly"
-_BASE_UTC = datetime(2026, 4, 29, 0, 0, 0, tzinfo=UTC)
-
-
-def _period(offset_hours: int) -> dict[str, Any]:
-    start = (_BASE_UTC + timedelta(hours=offset_hours)).isoformat()
-    return {
-        "number": offset_hours + 1,
-        "startTime": start,
-        "endTime": (_BASE_UTC + timedelta(hours=offset_hours + 1)).isoformat(),
-        "temperature": 20.0,
-        "temperatureUnit": "C",
-        "shortForecast": "Sunny",
-        "isDaytime": True,
-    }
 
 
 @pytest.fixture
@@ -75,36 +57,25 @@ async def test_scheduler_runs_first_poll_immediately(test_settings, sf) -> None:
     """AsyncIOScheduler fires the first poll immediately at startup.
 
     The scheduler is built with next_run_time=datetime.utcnow() and a 60-minute
-    interval. We inspect DB state after a short wait to confirm the first tick
-    executed without waiting a full interval.
+    interval. We verify the first tick executes without waiting a full interval
+    by patching poll_once with a threading.Event signal rather than relying on
+    cross-thread SQLite writes.
     """
-    points_response: dict[str, Any] = {
-        "type": "Feature",
-        "properties": {"forecastHourly": _FORECAST_HOURLY_URL},
-    }
-    hourly_response: dict[str, Any] = {
-        "type": "Feature",
-        "properties": {"periods": [_period(i) for i in range(3)]},
-    }
-    responses: deque[tuple[int, dict[str, Any]]] = deque(
-        [(200, points_response), (200, hourly_response)]
-    )
+    poll_started = threading.Event()
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        status, body = responses.popleft()
-        return httpx.Response(status, json=body)
+    def fake_poll_once(*args, **kwargs) -> PollResult:
+        poll_started.set()
+        return PollResult(success=True, observations_written=3, error_class=None, duration_ms=0)
 
-    mock_http = httpx.Client(transport=httpx.MockTransport(handler))
-    client = WeatherGovClient(user_agent="test-agent/1.0", client=mock_http)
+    with patch("app.scheduler.poll_once", fake_poll_once):
+        scheduler = build_scheduler(test_settings, sf, MagicMock())
+        scheduler.start()
+        try:
+            # Wait non-blocking (in a thread) for the first tick, up to 5 s.
+            # poll_once is called via asyncio.to_thread so the event is set
+            # from a worker thread; threading.Event.wait is the right primitive.
+            fired = await asyncio.to_thread(poll_started.wait, 5.0)
+        finally:
+            scheduler.shutdown(wait=False)
 
-    scheduler = build_scheduler(test_settings, sf, client)
-    scheduler.start()
-    try:
-        # Poll runs via asyncio.to_thread; 2s is ample for a mock HTTP call.
-        await asyncio.sleep(2.0)
-    finally:
-        scheduler.shutdown(wait=False)
-
-    with sf() as session:
-        obs = session.scalars(select(ForecastObservation)).all()
-    assert len(obs) >= 3
+    assert fired, "poll_once was not called within 5 seconds of scheduler start"
