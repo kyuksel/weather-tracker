@@ -7,6 +7,9 @@ services:
       - weather-data:/data
     env_file:
       - .env
+    environment:
+      # Override the .env value so the container always writes to the mounted volume.
+      DATABASE_URL: sqlite:////data/weather.db
 
 volumes:
   weather-data:

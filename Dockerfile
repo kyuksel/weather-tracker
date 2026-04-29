@@ -18,8 +18,10 @@ WORKDIR /app
 # Copy the virtual environment from the builder stage
 COPY --from=builder /app/.venv /app/.venv
 
-# Copy application source
+# Copy application source and migration files
 COPY app/ ./app/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
 
 # Create a non-root user (uid 1000)
 RUN useradd --uid 1000 --no-create-home --shell /usr/sbin/nologin appuser \
