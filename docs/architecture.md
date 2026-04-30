@@ -42,6 +42,16 @@ graph TD
     ORM -->|"results"| RP
     RP -->|"aggregated result"| FA
     FA -->|"JSON response"| AC
+
+    classDef external  fill:#f4a261,stroke:#e76f51,color:#000
+    classDef app       fill:#457b9d,stroke:#1d3557,color:#fff
+    classDef storage   fill:#2a9d8f,stroke:#264653,color:#fff
+    classDef client    fill:#8ecae6,stroke:#457b9d,color:#000
+
+    class WG external
+    class FA,SC,PL,WC,RP,ORM app
+    class DB storage
+    class AC client
 ```
 
 ## Data model relationships
