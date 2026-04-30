@@ -20,7 +20,7 @@ hour. Designed as a take-home coding exercise; scope is intentionally narrow.
    ```bash
    curl "http://localhost:8000/forecasts/extremes?lat=<your_lat>&lon=<your_lon>&date=<UTC_date>&hour=<UTC_hour>"
    ```
-5. Browse the auto-generated API docs at <http://localhost:8000/docs>.
+5. Browse the auto-generated API documentation at <http://localhost:8000/docs>, which also provides a UI to submit queries on the browser.
 
 > **Note on log visibility:** structured log lines for poll events may not
 > surface in container stdout (see [Known issues](#known-issues)). Use the
