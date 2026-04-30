@@ -6,6 +6,29 @@ local SQLite database, and exposes a query endpoint that returns the highest
 and lowest forecasted temperatures recorded for a given location, date, and
 hour. Designed as a take-home coding exercise; scope is intentionally narrow.
 
+## How to evaluate this submission
+
+1. Copy `.env.example` to `.env` and edit `TRACKED_LATITUDE`,
+   `TRACKED_LONGITUDE`, and `WEATHER_GOV_USER_AGENT`.
+2. Run `docker compose up --build`.
+3. Wait ~10 seconds for the first poll. Verify with:
+   ```bash
+   docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
+   ```
+   Expect a count > 0.
+4. Query the API:
+   ```bash
+   curl "http://localhost:8000/forecasts/extremes?lat=<your_lat>&lon=<your_lon>&date=<UTC_date>&hour=<UTC_hour>"
+   ```
+5. Browse the auto-generated API docs at <http://localhost:8000/docs>.
+
+> **Note on log visibility:** structured log lines for poll events may not
+> surface in container stdout (see [Known issues](#known-issues)). Use the
+> database query in step 3 above to confirm polling is working — it is the
+> authoritative verification path.
+
+---
+
 ## Table of contents
 
 1. [Design overview](#design-overview)
@@ -15,14 +38,33 @@ hour. Designed as a take-home coding exercise; scope is intentionally narrow.
 5. [Configuration](#configuration)
 6. [Library choices and rationale](#library-choices-and-rationale)
 7. [Assumptions](#assumptions)
-8. [PR sequence](#pr-sequence)
-9. [Future work](#future-work)
+8. [Known issues](#known-issues)
+9. [PR sequence](#pr-sequence)
+10. [Future work](#future-work)
 
 ---
 
 ## Design overview
 
-<!-- placeholder, filled in PR 6 -->
+The application has three cooperating subsystems running inside a single
+container:
+
+- **FastAPI web server** (uvicorn) handles inbound HTTP requests and manages
+  the application lifespan — running Alembic migrations on startup and starting
+  the scheduler.
+- **In-process APScheduler** (`AsyncIOScheduler`) fires the poll job immediately
+  on startup and then on a configurable interval (default 60 minutes).
+- **Poller + WeatherGovClient** fetches hourly forecast data from weather.gov's
+  two-step JSON API and persists each forecast entry as a `ForecastObservation`
+  row via the repository layer.
+
+Poll data flow: APScheduler → Poller → WeatherGovClient → weather.gov →
+Repositories → SQLAlchemy ORM → SQLite.
+
+Query data flow: API client → FastAPI → Repositories → SQLAlchemy ORM → SQLite.
+
+See [`docs/architecture.md`](docs/architecture.md) for a Mermaid system diagram
+and a description of the data model relationships.
 
 ---
 
@@ -175,14 +217,25 @@ regardless of what `.env` contains.
 
 **The poller starts immediately.** On container startup the app polls
 weather.gov for the configured location within seconds; you do not need to
-wait one full interval for the first data. To follow along in real time:
+wait one full interval for the first data.
+
+> **Log visibility caveat:** structured log lines for poll events (e.g.
+> `poll_complete`) may not surface in container stdout due to a known issue
+> (see [Known issues](#known-issues)). Prefer the database query below to
+> confirm polling is working rather than relying on log output.
+
+To verify the first poll completed, query the database directly:
+
+```bash
+docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
+```
+
+Expect a count equal to `FORECAST_HOURS_WINDOW` (default 72) within ~30
+seconds of `docker compose up`. You can also attempt the log-based check:
 
 ```bash
 docker compose logs -f weather-tracker | grep poll_complete
 ```
-
-You should see a `poll_complete` log line with `observations_written` matching
-`FORECAST_HOURS_WINDOW` (default 72) within ~30 seconds of `docker compose up`.
 
 `docker compose down` stops the container. The `weather-data` named volume
 persists the SQLite database across restarts. Running `docker compose up`
@@ -191,13 +244,14 @@ again (without `--build`) reuses the existing image and volume.
 ### Querying the endpoint after polling
 
 After startup the poller runs immediately, so observations are available within
-~30 seconds. Wait for at least two `poll_complete` log lines (one full
-interval) so the endpoint returns `observation_count >= 2` for near-future
-hours:
+~30 seconds. Wait for at least two poll intervals so the endpoint returns
+`observation_count >= 2` for near-future hours. Use the database query to
+confirm polls have run (see the caveat about log visibility in
+[Known issues](#known-issues)):
 
 ```bash
-# Follow logs and wait for the second poll_complete line
-docker compose logs -f weather-tracker | grep poll_complete
+# Confirm the row count has grown (run twice, ~60 minutes apart)
+docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
 
 # Then query — substitute your configured lat/lon and a future UTC hour
 curl "http://localhost:8000/forecasts/extremes?lat=39.7456&lon=-97.0892&date=$(date -u +%Y-%m-%d)&hour=20"
@@ -263,6 +317,18 @@ See `.env.example` for a template.
 **FastAPI** — Chosen over Flask or plain Starlette for its first-class Pydantic
 integration, automatic OpenAPI docs, and async support. The lifespan handler
 makes scheduler wiring clean.
+
+**uvicorn** — ASGI server that runs the FastAPI application. The `[standard]`
+extra bundles `uvloop` and `httptools` for better event-loop throughput at
+minimal configuration cost.
+
+**Pydantic** — Data validation and serialization library used for all request
+and response models. FastAPI's dependency on Pydantic v2 provides declarative
+field validation with type-safe schema generation and clear error messages.
+
+**pydantic-settings** — Extension of Pydantic for reading application
+configuration from environment variables (and `.env` files). Provides type
+coercion and validation for all `Settings` fields without custom parsing code.
 
 **SQLAlchemy 2.x** — The 2.x API (`select(...)`, `session.scalars(...)`,
 `Mapped[...]` typed columns) gives clean, type-safe database access. It avoids
@@ -333,6 +399,36 @@ a multi-tool chain.
 
 ---
 
+## Known issues
+
+### Structured log output not visible in container stdout
+
+Structured log lines for poll events (e.g. `poll_start`, `poll_complete`) do
+not surface in container stdout despite structlog being correctly configured and
+verified working in isolation. The root cause has not been identified; it may
+relate to how APScheduler executes async jobs or how uvicorn captures output
+from the background scheduler thread.
+
+**Functional impact:** none. The system polls weather.gov and persists
+observations on schedule. The log visibility gap is a developer-experience
+issue, not a correctness issue.
+
+**Verification without logs:** query the SQLite database directly to confirm
+that observations are being written:
+
+```bash
+docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
+```
+
+Run this command once after startup (expect `(72,)`) and again after one poll
+interval (expect `(144,)` with default settings). A growing count confirms the
+scheduler is firing and data is being persisted correctly.
+
+This issue is tracked for follow-up. See also the "Future work" item for adding
+a smoke test that would catch this class of issue earlier.
+
+---
+
 ## PR sequence
 
 - **PR 1: Project scaffolding and healthcheck** ([#1](https://github.com/kyuksel/weather-tracker/pull/1)) — repo skeleton, uv,
@@ -347,15 +443,23 @@ a multi-tool chain.
   lifespan, poll job that writes observations, error handling, tests.
 - **PR 5: Query endpoint** ([#5](https://github.com/kyuksel/weather-tracker/pull/5)) — `GET /forecasts/extremes` with input
   validation, MIN/MAX aggregation, 404 vs count-zero behavior, tests.
-- **PR 6: Documentation polish** — fill all README placeholders,
-  optional `docs/architecture.md` diagram.
+- **PR 6: Documentation polish** — fill all README placeholders, add
+  `docs/architecture.md` diagram, Known issues section, How to evaluate
+  submission section, and Future work additions.
 
 ---
 
 ## Future work
 
 - Refactor `app/db.py` to lazy engine and session construction so that importing
-  application modules does not require all environment variables to be set.
+  application modules does not require all environment variables to be set
+  (surfaced during PR 3 conftest fix).
+- Smoke test asserting that log output is JSON-formatted on stdout (would have
+  caught the deferred logging visibility issue documented in Known issues
+  earlier).
+- Investigate and resolve the deferred logging visibility issue documented in
+  Known issues: identify why structlog poll-event lines do not appear in
+  container stdout and fix or work around the root cause.
 
 - POST endpoint to register new locations to track at runtime.
 - API authentication (JWT, API key, or fronting gateway).
