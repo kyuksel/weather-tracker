@@ -74,7 +74,73 @@ across them with `MIN(temperature)` and `MAX(temperature)`.
 
 ## API contract
 
-<!-- placeholder, filled in PR 5 -->
+### `GET /healthz`
+
+Returns `{"status": "ok"}` with HTTP 200. Used by Docker health checks and
+load balancers.
+
+### `GET /forecasts/extremes`
+
+Returns the highest and lowest forecast temperatures recorded for a specific
+location, date, and UTC hour. Aggregates across all polling ticks that have
+ever stored a forecast for that `(location, forecast_for)` pair, capturing
+how predictions evolved over time.
+
+#### Query parameters
+
+| Parameter | Type | Required | Valid range | Description |
+|---|---|---|---|---|
+| `lat` | float | Yes | −90 to 90 | Latitude of the location |
+| `lon` | float | Yes | −180 to 180 | Longitude of the location |
+| `date` | string | Yes | `YYYY-MM-DD` | UTC date |
+| `hour` | integer | Yes | 0–23 | UTC hour of day |
+
+#### Status codes
+
+| Code | Condition |
+|---|---|
+| 200 | Location is tracked (even if `observation_count` is 0) |
+| 404 | Location has never been polled |
+| 422 | A query parameter fails validation |
+
+When `observation_count` is 0, `min_temperature`, `max_temperature`, and
+`unit` are all `null`.
+
+#### Example response (200)
+
+```json
+{
+  "location": {"latitude": 39.7456, "longitude": -97.0892},
+  "target_hour_utc": "2026-04-29T14:00:00Z",
+  "min_temperature": 12.4,
+  "max_temperature": 18.7,
+  "unit": "C",
+  "observation_count": 3
+}
+```
+
+#### Example response (200, no observations yet)
+
+```json
+{
+  "location": {"latitude": 39.7456, "longitude": -97.0892},
+  "target_hour_utc": "2026-04-29T14:00:00Z",
+  "min_temperature": null,
+  "max_temperature": null,
+  "unit": null,
+  "observation_count": 0
+}
+```
+
+#### Sample `curl` command
+
+```bash
+# Query extremes for the configured location, today at 14:00 UTC
+curl "http://localhost:8000/forecasts/extremes?lat=39.7456&lon=-97.0892&date=$(date -u +%Y-%m-%d)&hour=14"
+
+# Query an unconfigured location — returns 404
+curl "http://localhost:8000/forecasts/extremes?lat=40.0&lon=-98.0&date=2026-04-29&hour=14"
+```
 
 ---
 
@@ -121,6 +187,41 @@ You should see a `poll_complete` log line with `observations_written` matching
 `docker compose down` stops the container. The `weather-data` named volume
 persists the SQLite database across restarts. Running `docker compose up`
 again (without `--build`) reuses the existing image and volume.
+
+### Querying the endpoint after polling
+
+After startup the poller runs immediately, so observations are available within
+~30 seconds. Wait for at least two `poll_complete` log lines (one full
+interval) so the endpoint returns `observation_count >= 2` for near-future
+hours:
+
+```bash
+# Follow logs and wait for the second poll_complete line
+docker compose logs -f weather-tracker | grep poll_complete
+
+# Then query — substitute your configured lat/lon and a future UTC hour
+curl "http://localhost:8000/forecasts/extremes?lat=39.7456&lon=-97.0892&date=$(date -u +%Y-%m-%d)&hour=20"
+```
+
+Expected response shape (temperatures in Celsius, count grows with each poll):
+
+```json
+{
+  "location": {"latitude": 39.7456, "longitude": -97.0892},
+  "target_hour_utc": "2026-04-30T20:00:00Z",
+  "min_temperature": 14.2,
+  "max_temperature": 14.5,
+  "unit": "C",
+  "observation_count": 2
+}
+```
+
+To confirm that unknown locations return 404:
+
+```bash
+curl -i "http://localhost:8000/forecasts/extremes?lat=40.0&lon=-98.0&date=$(date -u +%Y-%m-%d)&hour=20"
+# HTTP/1.1 404 Not Found
+```
 
 ### Running Alembic locally (outside Docker)
 
@@ -244,7 +345,7 @@ a multi-tool chain.
   tests.
 - **PR 4: Poller and scheduler** ([#4](https://github.com/kyuksel/weather-tracker/pull/4)) — APScheduler integration in FastAPI
   lifespan, poll job that writes observations, error handling, tests.
-- **PR 5: Query endpoint** — `GET /forecasts/extremes` with input
+- **PR 5: Query endpoint** ([#5](https://github.com/kyuksel/weather-tracker/pull/5)) — `GET /forecasts/extremes` with input
   validation, MIN/MAX aggregation, 404 vs count-zero behavior, tests.
 - **PR 6: Documentation polish** — fill all README placeholders,
   optional `docs/architecture.md` diagram.

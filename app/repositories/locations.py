@@ -7,6 +7,28 @@ from sqlalchemy.orm import Session
 from app.models import Location
 
 
+def find_location(session: Session, latitude: float, longitude: float) -> Location | None:
+    """Return the Location row for (latitude, longitude), or None if not tracked.
+
+    Pure read; does not create. The query endpoint uses this to check whether a
+    location has ever been polled.
+
+    Args:
+        session: Active SQLAlchemy session.
+        latitude: Location latitude.
+        longitude: Location longitude.
+
+    Returns:
+        Matching Location row, or None.
+    """
+    return session.scalars(
+        select(Location).where(
+            Location.latitude == latitude,
+            Location.longitude == longitude,
+        )
+    ).first()
+
+
 def get_or_create_location(session: Session, latitude: float, longitude: float) -> Location:
     """Return the Location row for (latitude, longitude), creating it if absent.
 
