@@ -1,7 +1,7 @@
 """Poller: fetches forecasts from weather.gov and writes observations to the database."""
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 import structlog
 from pydantic import BaseModel
@@ -48,7 +48,7 @@ def poll_once(
     """
     log.info("poll_start", lat=latitude, lon=longitude, hours=hours)
     t0 = time.monotonic()
-    retrieved_at = datetime.utcnow()
+    retrieved_at = datetime.now(UTC).replace(tzinfo=None)
 
     try:
         entries = weather_client.get_hourly_forecast(latitude, longitude, hours)

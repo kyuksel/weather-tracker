@@ -9,6 +9,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from app.api.forecasts import router as forecasts_router
 from app.config import get_settings
 from app.db import SessionLocal
 from app.logging_config import configure_logging
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 app = FastAPI(title="weather-tracker", lifespan=lifespan)
+app.include_router(forecasts_router)
 
 
 @app.get("/healthz")
