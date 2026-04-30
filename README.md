@@ -443,7 +443,7 @@ a smoke test that would catch this class of issue earlier.
   lifespan, poll job that writes observations, error handling, tests.
 - **PR 5: Query endpoint** ([#5](https://github.com/kyuksel/weather-tracker/pull/5)) — `GET /forecasts/extremes` with input
   validation, MIN/MAX aggregation, 404 vs count-zero behavior, tests.
-- **PR 6: Documentation polish** — fill all README placeholders, add
+- **PR 6: Documentation polish** ([#6](https://github.com/kyuksel/weather-tracker/pull/6)) — fill all README placeholders, add
   `docs/architecture.md` diagram, Known issues section, How to evaluate
   submission section, and Future work additions.
 
