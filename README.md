@@ -3,8 +3,10 @@
 A containerized Python application that polls [weather.gov](https://weather.gov) for hourly
 temperature forecasts at a configured location, stores every observation in a
 local SQLite database, and exposes a query endpoint that returns the highest
-and lowest forecasted temperatures recorded for a given location, date, and
-hour. Designed as a take-home coding exercise; scope is intentionally narrow.
+and the lowest forecasted temperatures recorded for a given location, date, and
+hour.
+
+Designed as a take-home time-limited coding exercise so the scope is intentionally narrow.
 
 ## How to evaluate this submission
 
@@ -23,9 +25,8 @@ hour. Designed as a take-home coding exercise; scope is intentionally narrow.
 5. Browse the auto-generated API documentation at <http://localhost:8000/docs>, which also provides a UI to submit queries on the browser.
 
 > **Note on log visibility:** structured log lines for poll events may not
-> surface in container stdout (see [Known issues](#known-issues)). Use the
-> database query in step 3 above to confirm polling is working — it is the
-> authoritative verification path.
+> surface in container stdout (see [Known issues](#known-issues)). The
+> database query in step 3 above can be used to confirm polling is working.
 
 ---
 
@@ -46,14 +47,12 @@ hour. Designed as a take-home coding exercise; scope is intentionally narrow.
 
 ## Design overview
 
-The application has three cooperating subsystems running inside a single
-container:
-
+The application has three subsystems running inside a single container:
 - **FastAPI web server** (uvicorn) handles inbound HTTP requests and manages
   the application lifespan — running Alembic migrations on startup and starting
   the scheduler.
 - **In-process APScheduler** (`AsyncIOScheduler`) fires the poll job immediately
-  on startup and then on a configurable interval (default 60 minutes).
+  on startup and then on a configurable interval (defaults to 60 minutes).
 - **Poller + WeatherGovClient** fetches hourly forecast data from weather.gov's
   two-step JSON API and persists each forecast entry as a `ForecastObservation`
   row via the repository layer.
@@ -63,7 +62,7 @@ Repositories → SQLAlchemy ORM → SQLite.
 
 Query data flow: API client → FastAPI → Repositories → SQLAlchemy ORM → SQLite.
 
-See [`docs/architecture.md`](docs/architecture.md) for a Mermaid system diagram
+See [`docs/architecture.md`](docs/architecture.md) for a system diagram
 and a description of the data model relationships.
 
 ---
@@ -99,13 +98,13 @@ A composite index `ix_observation_location_forecast_for` covers
 `(location_id, forecast_for)`, which is the access pattern used by the query
 endpoint.
 
-**Critical design point — multiple observations per target hour are intentional.**
+**Note that multiple observations per target hour are intentional.**
 Each polling tick writes one new row per forecast hour, even when a row for the
 same `(location_id, forecast_for)` already exists from an earlier tick. There
 is no unique constraint or upsert on that pair. The system tracks how forecasts
-evolve over time; multiple rows are the data, not a bug.
+evolve.
 
-Concrete example: at 14:00 UTC the poller inserts a row predicting 12.5 °C for
+Example: at 14:00 UTC the poller inserts a row predicting 12.5 °C for
 tomorrow 09:00 UTC. At 15:00 UTC weather.gov has revised its forecast to
 13.1 °C; the poller inserts a second row for the same `forecast_for`
 timestamp. After 24 hours of hourly polling there will be roughly 24 rows for
@@ -118,8 +117,7 @@ across them with `MIN(temperature)` and `MAX(temperature)`.
 
 ### `GET /healthz`
 
-Returns `{"status": "ok"}` with HTTP 200. Used by Docker health checks and
-load balancers.
+Returns `{"status": "ok"}` with HTTP 200. Used by Docker health checks.
 
 ### `GET /forecasts/extremes`
 
@@ -191,7 +189,7 @@ curl "http://localhost:8000/forecasts/extremes?lat=40.0&lon=-98.0&date=2026-04-2
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) with the Compose plugin (or `docker-compose` v2)
-- No local Python install required — everything runs inside the container
+- Local Python installation is not required as everything runs inside the container.
 
 ### Steps
 
@@ -221,8 +219,8 @@ wait one full interval for the first data.
 
 > **Log visibility caveat:** structured log lines for poll events (e.g.
 > `poll_complete`) may not surface in container stdout due to a known issue
-> (see [Known issues](#known-issues)). Prefer the database query below to
-> confirm polling is working rather than relying on log output.
+> (see [Known issues](#known-issues)). The database query below can be used to
+> confirm that polling is working rather than relying on log output.
 
 To verify the first poll completed, query the database directly:
 
@@ -280,8 +278,8 @@ curl -i "http://localhost:8000/forecasts/extremes?lat=40.0&lon=-98.0&date=$(date
 ### Running Alembic locally (outside Docker)
 
 The default database path (`/data/weather.db`) only exists inside the
-container. To run migrations locally — for example to inspect the schema or
-generate new revisions — set `DATABASE_URL` to a writable local path first:
+container. To inspect the schema or generate new revisions,
+migrations can be run locally by setting `DATABASE_URL` to a writable local path first:
 
 ```bash
 # .env.example already sets DATABASE_URL=sqlite:///./weather.db; if you
@@ -405,15 +403,11 @@ a multi-tool chain.
 
 Structured log lines for poll events (e.g. `poll_start`, `poll_complete`) do
 not surface in container stdout despite structlog being correctly configured and
-verified working in isolation. The root cause has not been identified; it may
-relate to how APScheduler executes async jobs or how uvicorn captures output
+verified working in isolation. The root cause has not been identified. It may
+be related to how APScheduler executes async jobs or how uvicorn captures output
 from the background scheduler thread.
 
-**Functional impact:** none. The system polls weather.gov and persists
-observations on schedule. The log visibility gap is a developer-experience
-issue, not a correctness issue.
-
-**Verification without logs:** query the SQLite database directly to confirm
+**Verification without logs:** Query the SQLite database directly to confirm
 that observations are being written:
 
 ```bash
@@ -460,26 +454,10 @@ a smoke test that would catch this class of issue earlier.
 - Investigate and resolve the deferred logging visibility issue documented in
   Known issues: identify why structlog poll-event lines do not appear in
   container stdout and fix or work around the root cause.
-
 - POST endpoint to register new locations to track at runtime.
 - API authentication (JWT, API key, or fronting gateway).
-- Frontend UI for visualizing forecast variation over time.
 - Migration to Postgres for production scale.
 - Migration to async SQLAlchemy paired with an async-friendly job runner.
 - In-memory or Redis-backed caching layer for repeated queries.
-- Prometheus `/metrics` endpoint and a sample Grafana dashboard JSON.
-  Initial metrics: poll success/failure counter, poll duration
-  histogram, API request counter by endpoint and status, observation
-  count gauge.
-- Multi-replica deployment with leader election or external scheduler
-  to avoid double-polling.
-- Deduplication strategy for unchanged forecast values across polls
-  (storage cost optimization).
-- Bulk insert and database connection pool tuning for higher polling
-  cadence or many tracked locations.
-- Configurable data retention policy (delete observations older than N
-  days).
 - Continuous integration via GitHub Actions: ruff, pytest, and docker
   build on every PR.
-- Continuous deployment: container registry push on merge, deploy to a
-  managed orchestrator (Kubernetes, Cloud Run, ECS).
