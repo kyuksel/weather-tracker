@@ -42,3 +42,6 @@ htmlcov/
 .vscode/
 *.swp
 *~
+
+# Mac
+.DS_Store
