@@ -24,10 +24,6 @@ Designed as a take-home time-limited coding exercise so the scope is intentional
    ```
 5. Browse the auto-generated API documentation at <http://localhost:8000/docs>, which also provides a UI to submit queries on the browser.
 
-> **Note on log visibility:** structured log lines for poll events may not
-> surface in container stdout (see [Known issues](#known-issues)). The
-> database query in step 3 above can be used to confirm polling is working.
-
 ---
 
 ## Table of contents
@@ -39,9 +35,7 @@ Designed as a take-home time-limited coding exercise so the scope is intentional
 5. [Configuration](#configuration)
 6. [Library choices and rationale](#library-choices-and-rationale)
 7. [Assumptions](#assumptions)
-8. [Known issues](#known-issues)
-9. [PR sequence](#pr-sequence)
-10. [Future work](#future-work)
+8. [Future work](#future-work)
 
 ---
 
@@ -217,19 +211,25 @@ regardless of what `.env` contains.
 weather.gov for the configured location within seconds; you do not need to
 wait one full interval for the first data.
 
-> **Log visibility caveat:** structured log lines for poll events (e.g.
-> `poll_complete`) may not surface in container stdout due to a known issue
-> (see [Known issues](#known-issues)). The database query below can be used to
-> confirm that polling is working rather than relying on log output.
+To verify the first poll completed, watch the logs:
 
-To verify the first poll completed, query the database directly:
+```bash
+docker compose logs -f weather-tracker | grep poll_complete
+```
+
+Expect a JSON line within ~30 seconds of `docker compose up` showing
+`observations_written` equal to `FORECAST_HOURS_WINDOW` (default 72).
+
+The database can also be queried directly via:
 
 ```bash
 docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
 ```
 
 Expect a count equal to `FORECAST_HOURS_WINDOW` (default 72) within ~30
-seconds of `docker compose up`. You can also attempt the log-based check:
+seconds of `docker compose up`.
+
+You can also attempt the log-based check:
 
 ```bash
 docker compose logs -f weather-tracker | grep poll_complete
@@ -241,15 +241,14 @@ again (without `--build`) reuses the existing image and volume.
 
 ### Querying the endpoint after polling
 
-After startup the poller runs immediately, so observations are available within
-~30 seconds. Wait for at least two poll intervals so the endpoint returns
-`observation_count >= 2` for near-future hours. Use the database query to
-confirm polls have run (see the caveat about log visibility in
-[Known issues](#known-issues)):
+After startup the poller runs immediately, so observations are available
+within ~30 seconds. Wait for at least two poll intervals so the endpoint
+returns `observation_count >= 2` for near-future hours. Watch the logs to
+confirm polls have run:
 
 ```bash
-# Confirm the row count has grown (run twice, ~60 minutes apart)
-docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
+# Stream logs and look for poll_complete events (run for a few minutes)
+docker compose logs -f weather-tracker | grep poll_complete
 
 # Then query — substitute your configured lat/lon and a future UTC hour
 curl "http://localhost:8000/forecasts/extremes?lat=39.7456&lon=-97.0892&date=$(date -u +%Y-%m-%d)&hour=20"
@@ -397,63 +396,11 @@ a multi-tool chain.
 
 ---
 
-## Known issues
-
-### Structured log output not visible in container stdout
-
-Structured log lines for poll events (e.g. `poll_start`, `poll_complete`) do
-not surface in container stdout despite structlog being correctly configured and
-verified working in isolation. The root cause has not been identified. It may
-be related to how APScheduler executes async jobs or how uvicorn captures output
-from the background scheduler thread.
-
-**Verification without logs:** Query the SQLite database directly to confirm
-that observations are being written:
-
-```bash
-docker compose exec weather-tracker python -c "import sqlite3; print(sqlite3.connect('/data/weather.db').execute('SELECT COUNT(*) FROM forecast_observation').fetchone())"
-```
-
-Run this command once after startup (expect `(72,)`) and again after one poll
-interval (expect `(144,)` with default settings). A growing count confirms the
-scheduler is firing and data is being persisted correctly.
-
-This issue is tracked for follow-up. See also the "Future work" item for adding
-a smoke test that would catch this class of issue earlier.
-
----
-
-## PR sequence
-
-- **PR 1: Project scaffolding and healthcheck** ([#1](https://github.com/kyuksel/weather-tracker/pull/1)) — repo skeleton, uv,
-  ruff, FastAPI app with `/healthz`, Dockerfile, docker-compose, README
-  skeleton, CLAUDE.md.
-- **PR 2: Database layer and migrations** ([#2](https://github.com/kyuksel/weather-tracker/pull/2)) — SQLAlchemy models, Alembic
-  setup, initial migration, schema round-trip test.
-- **PR 3: weather.gov client** ([#3](https://github.com/kyuksel/weather-tracker/pull/3)) — httpx-based client with tenacity
-  retries, gridpoint cache, configurable forecast window, mocked
-  tests.
-- **PR 4: Poller and scheduler** ([#4](https://github.com/kyuksel/weather-tracker/pull/4)) — APScheduler integration in FastAPI
-  lifespan, poll job that writes observations, error handling, tests.
-- **PR 5: Query endpoint** ([#5](https://github.com/kyuksel/weather-tracker/pull/5)) — `GET /forecasts/extremes` with input
-  validation, MIN/MAX aggregation, 404 vs count-zero behavior, tests.
-- **PR 6: Documentation polish** ([#6](https://github.com/kyuksel/weather-tracker/pull/6)) — fill all README placeholders, add
-  `docs/architecture.md` diagram, Known issues section, How to evaluate
-  submission section, and Future work additions.
-
----
-
 ## Future work
 
 - Refactor `app/db.py` to lazy engine and session construction so that importing
   application modules does not require all environment variables to be set
   (surfaced during PR 3 conftest fix).
-- Smoke test asserting that log output is JSON-formatted on stdout (would have
-  caught the deferred logging visibility issue documented in Known issues
-  earlier).
-- Investigate and resolve the deferred logging visibility issue documented in
-  Known issues: identify why structlog poll-event lines do not appear in
-  container stdout and fix or work around the root cause.
 - POST endpoint to register new locations to track at runtime.
 - API authentication (JWT, API key, or fronting gateway).
 - Migration to Postgres for production scale.

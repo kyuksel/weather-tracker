@@ -1,4 +1,5 @@
-from logging.config import fileConfig
+# Skip importing fileConfig: see comment near the call site below.
+# from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -13,8 +14,16 @@ config = context.config
 # Set the database URL from application config so alembic.ini stays clean.
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Intentionally NOT calling fileConfig(config.config_file_name) here.
+# alembic.ini contains [loggers]/[handlers]/[formatters] sections that, when
+# applied via fileConfig, replace the application's logging configuration:
+# they set the root logger to WARNING (filtering out our structlog INFO calls),
+# attach a stderr handler, and use a formatter that strips structured kwargs.
+# When migrations run inside the FastAPI lifespan, configure_logging has
+# already set up the structlog/JSON pipeline on stdout, and we want alembic's
+# own log records to flow through it too.
+# if config.config_file_name is not None:
+#     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
